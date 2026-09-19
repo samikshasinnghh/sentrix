@@ -11,6 +11,24 @@ def add_time_features(df):
     return df
 
 
+def add_user_hour_baseline(df):
+    df = df.copy()
+
+    user_hour_stats = df.groupby("User ID")["hour"].agg(["mean", "std"]).reset_index()
+    user_hour_stats.columns = ["User ID", "user_avg_hour", "user_hour_std"]
+
+    df = df.merge(user_hour_stats, on="User ID", how="left")
+
+    # Same guard as the activity pipeline: users with near-zero variation
+    # (often because they only appear once or twice) get a safe fallback
+    # so we don't divide by a near-zero number and flag everything.
+    df["user_hour_std"] = df["user_hour_std"].fillna(1).replace(0, 1)
+    df["hour_deviation"] = (df["hour"] - df["user_avg_hour"]).abs() / df["user_hour_std"]
+    df["is_unusual_hour"] = df["hour_deviation"] > 2
+
+    return df
+
+
 def add_windowed_failed_logins(df):
     df = df.copy()
     df = df.sort_values(["User ID", "Login Timestamp"]).reset_index(drop=True)
@@ -57,19 +75,20 @@ if __name__ == "__main__":
     df = pd.read_csv("data/processed/rba_clean.csv", parse_dates=["Login Timestamp"])
 
     df = add_time_features(df)
+    df = add_user_hour_baseline(df)
     df = add_windowed_failed_logins(df)
     df = add_novelty_features(df)
 
     print(df.shape)
+    print()
+    print("is_unusual_hour vs Is Account Takeover:")
+    print(pd.crosstab(df["is_unusual_hour"], df["Is Account Takeover"]))
     print()
     print("insufficient_history breakdown:")
     print(df["insufficient_history"].value_counts())
     print()
     print("New country vs Is Account Takeover (raw signal, unfiltered):")
     print(pd.crosstab(df["is_new_country"], df["Is Account Takeover"]))
-    print()
-    print("Of the True Account Takeovers, how many also have insufficient_history:")
-    print(df[df["Is Account Takeover"]]["insufficient_history"].value_counts())
     print()
     print("High failed_logins_10min (>5) vs Is Attack IP:")
     print(pd.crosstab(df["failed_logins_10min"] > 5, df["Is Attack IP"]))
