@@ -2,7 +2,7 @@ from typing import Optional
 import uuid as uuid_lib
 from fastapi import FastAPI, Depends, HTTPException
 from backend.database import get_db_connection
-from backend.schemas import AlertOut
+from backend.schemas import AlertOut, UserRiskOut
 
 app = FastAPI(
     title="Sentrix API",
@@ -117,3 +117,53 @@ def get_alert_by_id(event_id: str, conn=Depends(get_db_connection)):
         raise HTTPException(status_code=404, detail="Alert not found")
 
     return result
+
+
+@app.get("/users/{user_id}/risk", response_model=UserRiskOut)
+def get_user_risk(user_id: str, conn=Depends(get_db_connection)):
+    with conn.cursor() as cur:
+        cur.execute("SELECT user_id, role FROM users WHERE user_id = %s;", [user_id])
+        user = cur.fetchone()
+
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        cur.execute("""
+            SELECT COUNT(*) as total,
+                   AVG(r.risk_score) as avg_score,
+                   MAX(r.risk_score) as max_score
+            FROM security_events e
+            JOIN risk_scores r ON e.event_id = r.event_id
+            WHERE e.user_id = %s;
+        """, [user_id])
+        stats = cur.fetchone()
+
+        cur.execute("""
+            SELECT COUNT(*) as total
+            FROM security_events e
+            JOIN anomalies a ON e.event_id = a.event_id
+            WHERE e.user_id = %s AND a.is_attack = true;
+        """, [user_id])
+        attack_count = cur.fetchone()["total"]
+
+        cur.execute("""
+            SELECT e.event_id, e.timestamp, e.user_id, e.action,
+                   r.risk_score, r.severity, a.attack_type
+            FROM security_events e
+            JOIN risk_scores r ON e.event_id = r.event_id
+            JOIN anomalies a ON e.event_id = a.event_id
+            WHERE e.user_id = %s AND r.severity IN ('HIGH', 'CRITICAL')
+            ORDER BY e.timestamp DESC
+            LIMIT 5;
+        """, [user_id])
+        recent_events = cur.fetchall()
+
+    return {
+        "user_id": user["user_id"],
+        "role": user["role"],
+        "total_events": stats["total"],
+        "total_flagged_attacks": attack_count,
+        "avg_risk_score": round(float(stats["avg_score"]), 2) if stats["avg_score"] else 0.0,
+        "max_risk_score": float(stats["max_score"]) if stats["max_score"] else 0.0,
+        "recent_high_severity_events": recent_events,
+    }
