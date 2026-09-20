@@ -31,3 +31,19 @@ class EventIn(BaseModel):
     action: str
     status: str
     is_privileged_action: bool
+
+
+class UserRegisterIn(BaseModel):
+    username: str
+    password: str
+    role: str
+
+
+class UserLoginIn(BaseModel):
+    username: str
+    password: str
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"

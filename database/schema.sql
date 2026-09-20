@@ -49,3 +49,10 @@ CREATE INDEX idx_events_user_id ON security_events(user_id);
 CREATE INDEX idx_events_timestamp ON security_events(timestamp);
 CREATE INDEX idx_risk_scores_severity ON risk_scores(severity);
 CREATE INDEX idx_alerts_status ON alerts(status);
+CREATE TABLE app_users (
+    app_user_id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'analyst', 'viewer')),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);

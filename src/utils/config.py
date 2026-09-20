@@ -12,3 +12,4 @@ PROCESSED_DATA_DIR = BASE_DIR / "data" / "processed"
 DATABASE_URL = os.getenv("DATABASE_URL")
 APP_ENV = os.getenv("APP_ENV", "development")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")

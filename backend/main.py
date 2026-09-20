@@ -2,7 +2,11 @@ from typing import Optional
 import uuid as uuid_lib
 from fastapi import FastAPI, Depends, HTTPException
 from backend.database import get_db_connection
-from backend.schemas import AlertOut, UserRiskOut, EventIn
+from backend.schemas import (
+    AlertOut, UserRiskOut, EventIn,
+    UserRegisterIn, UserLoginIn, TokenOut,
+)
+from backend.auth import hash_password, verify_password, create_access_token
 
 app = FastAPI(
     title="Sentrix API",
@@ -193,3 +197,39 @@ def create_event(event: EventIn, conn=Depends(get_db_connection)):
         "status": "created",
         "note": "Event ingested. Risk scoring is a separate batch process (see Phase 6/7 pipeline) and has not yet been computed for this event.",
     }
+
+
+@app.post("/auth/register", status_code=201)
+def register(user: UserRegisterIn, conn=Depends(get_db_connection)):
+    if user.role not in ("admin", "analyst", "viewer"):
+        raise HTTPException(status_code=400, detail="Invalid role")
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM app_users WHERE username = %s;", [user.username])
+        if cur.fetchone():
+            raise HTTPException(status_code=400, detail="Username already exists")
+
+        hashed = hash_password(user.password)
+        cur.execute(
+            "INSERT INTO app_users (username, password_hash, role) VALUES (%s, %s, %s);",
+            [user.username, hashed, user.role],
+        )
+        conn.commit()
+
+    return {"status": "registered", "username": user.username, "role": user.role}
+
+
+@app.post("/auth/login", response_model=TokenOut)
+def login(credentials: UserLoginIn, conn=Depends(get_db_connection)):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT username, password_hash, role FROM app_users WHERE username = %s;",
+            [credentials.username],
+        )
+        user = cur.fetchone()
+
+    if user is None or not verify_password(credentials.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
+
+    token = create_access_token(user["username"], user["role"])
+    return {"access_token": token, "token_type": "bearer"}
