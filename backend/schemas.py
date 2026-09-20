@@ -21,3 +21,13 @@ class UserRiskOut(BaseModel):
     avg_risk_score: float
     max_risk_score: float
     recent_high_severity_events: list[AlertOut]
+
+
+class EventIn(BaseModel):
+    user_id: str
+    timestamp: datetime
+    source_ip: str
+    country: str
+    action: str
+    status: str
+    is_privileged_action: bool

@@ -2,7 +2,7 @@ from typing import Optional
 import uuid as uuid_lib
 from fastapi import FastAPI, Depends, HTTPException
 from backend.database import get_db_connection
-from backend.schemas import AlertOut, UserRiskOut
+from backend.schemas import AlertOut, UserRiskOut, EventIn
 
 app = FastAPI(
     title="Sentrix API",
@@ -166,4 +166,30 @@ def get_user_risk(user_id: str, conn=Depends(get_db_connection)):
         "avg_risk_score": round(float(stats["avg_score"]), 2) if stats["avg_score"] else 0.0,
         "max_risk_score": float(stats["max_score"]) if stats["max_score"] else 0.0,
         "recent_high_severity_events": recent_events,
+    }
+
+
+@app.post("/events", status_code=201)
+def create_event(event: EventIn, conn=Depends(get_db_connection)):
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM users WHERE user_id = %s;", [event.user_id])
+        if cur.fetchone() is None:
+            raise HTTPException(status_code=400, detail=f"Unknown user_id: {event.user_id}")
+
+        new_event_id = str(uuid_lib.uuid4())
+
+        cur.execute("""
+            INSERT INTO security_events
+            (event_id, user_id, timestamp, source_ip, country, action, status, is_privileged_action)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
+        """, [
+            new_event_id, event.user_id, event.timestamp, event.source_ip,
+            event.country, event.action, event.status, event.is_privileged_action,
+        ])
+        conn.commit()
+
+    return {
+        "event_id": new_event_id,
+        "status": "created",
+        "note": "Event ingested. Risk scoring is a separate batch process (see Phase 6/7 pipeline) and has not yet been computed for this event.",
     }
