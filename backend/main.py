@@ -1,12 +1,16 @@
 from typing import Optional
 import uuid as uuid_lib
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.security import OAuth2PasswordRequestForm
 from backend.database import get_db_connection
 from backend.schemas import (
     AlertOut, UserRiskOut, EventIn,
-    UserRegisterIn, UserLoginIn, TokenOut,
+    UserRegisterIn, TokenOut,
 )
-from backend.auth import hash_password, verify_password, create_access_token
+from backend.auth import (
+    hash_password, verify_password, create_access_token,
+    get_current_user, require_role,
+)
 
 app = FastAPI(
     title="Sentrix API",
@@ -72,6 +76,7 @@ def get_alerts(
     limit: int = 50,
     offset: int = 0,
     conn=Depends(get_db_connection),
+    current_user: dict = Depends(get_current_user),
 ):
     query = """
         SELECT e.event_id, e.timestamp, e.user_id, e.action,
@@ -98,7 +103,11 @@ def get_alerts(
 
 
 @app.get("/alerts/{event_id}", response_model=AlertOut)
-def get_alert_by_id(event_id: str, conn=Depends(get_db_connection)):
+def get_alert_by_id(
+    event_id: str,
+    conn=Depends(get_db_connection),
+    current_user: dict = Depends(get_current_user),
+):
     try:
         uuid_lib.UUID(event_id)
     except ValueError:
@@ -124,7 +133,11 @@ def get_alert_by_id(event_id: str, conn=Depends(get_db_connection)):
 
 
 @app.get("/users/{user_id}/risk", response_model=UserRiskOut)
-def get_user_risk(user_id: str, conn=Depends(get_db_connection)):
+def get_user_risk(
+    user_id: str,
+    conn=Depends(get_db_connection),
+    current_user: dict = Depends(get_current_user),
+):
     with conn.cursor() as cur:
         cur.execute("SELECT user_id, role FROM users WHERE user_id = %s;", [user_id])
         user = cur.fetchone()
@@ -174,7 +187,11 @@ def get_user_risk(user_id: str, conn=Depends(get_db_connection)):
 
 
 @app.post("/events", status_code=201)
-def create_event(event: EventIn, conn=Depends(get_db_connection)):
+def create_event(
+    event: EventIn,
+    conn=Depends(get_db_connection),
+    current_user: dict = Depends(require_role("admin", "analyst")),
+):
     with conn.cursor() as cur:
         cur.execute("SELECT 1 FROM users WHERE user_id = %s;", [event.user_id])
         if cur.fetchone() is None:
@@ -220,16 +237,17 @@ def register(user: UserRegisterIn, conn=Depends(get_db_connection)):
 
 
 @app.post("/auth/login", response_model=TokenOut)
-def login(credentials: UserLoginIn, conn=Depends(get_db_connection)):
+def login(form_data: OAuth2PasswordRequestForm = Depends(), conn=Depends(get_db_connection)):
     with conn.cursor() as cur:
         cur.execute(
             "SELECT username, password_hash, role FROM app_users WHERE username = %s;",
-            [credentials.username],
+            [form_data.username],
         )
         user = cur.fetchone()
 
-    if user is None or not verify_password(credentials.password, user["password_hash"]):
+    if user is None or not verify_password(form_data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Incorrect username or password")
 
     token = create_access_token(user["username"], user["role"])
     return {"access_token": token, "token_type": "bearer"}
+    
