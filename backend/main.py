@@ -1,16 +1,23 @@
+import os
+import sys
 from typing import Optional
 import uuid as uuid_lib
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from backend.database import get_db_connection
 from backend.schemas import (
     AlertOut, UserRiskOut, EventIn,
     UserRegisterIn, TokenOut,
+    AlertGenerateOut, AlertStatusUpdateIn,
 )
 from backend.auth import (
     hash_password, verify_password, create_access_token,
     get_current_user, require_role,
 )
+from src.detection.alert_engine import generate_alerts
 
 app = FastAPI(
     title="Sentrix API",
@@ -250,4 +257,37 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), conn=Depends(get_db_
 
     token = create_access_token(user["username"], user["role"])
     return {"access_token": token, "token_type": "bearer"}
-    
+
+
+@app.post("/alerts/generate", response_model=AlertGenerateOut)
+def trigger_alert_generation(
+    conn=Depends(get_db_connection),
+    current_user: dict = Depends(require_role("admin", "analyst")),
+):
+    result = generate_alerts()
+    return result
+
+
+@app.patch("/alerts/{alert_id}/status")
+def update_alert_status(
+    alert_id: int,
+    update: AlertStatusUpdateIn,
+    conn=Depends(get_db_connection),
+    current_user: dict = Depends(require_role("admin", "analyst")),
+):
+    valid_statuses = {"OPEN", "RESOLVED", "FALSE_POSITIVE"}
+    if update.status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Status must be one of {valid_statuses}")
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM alerts WHERE alert_id = %s;", [alert_id])
+        if cur.fetchone() is None:
+            raise HTTPException(status_code=404, detail="Alert not found")
+
+        cur.execute(
+            "UPDATE alerts SET status = %s WHERE alert_id = %s;",
+            [update.status, alert_id],
+        )
+        conn.commit()
+
+    return {"alert_id": alert_id, "status": update.status}

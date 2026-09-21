@@ -47,3 +47,11 @@ class UserLoginIn(BaseModel):
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+class AlertGenerateOut(BaseModel):
+    new_alerts_created: int
+    total_alerts: int
+
+
+class AlertStatusUpdateIn(BaseModel):
+    status: str
