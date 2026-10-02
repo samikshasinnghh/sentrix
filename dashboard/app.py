@@ -114,6 +114,59 @@ else:
     )
     st.altair_chart(chart, width="stretch")
 
+# ---------- Trends ----------
+st.subheader("Trends")
+t1, t2 = st.columns(2)
+
+with t1:
+    st.markdown("**HIGH and CRITICAL alerts per day**")
+    timeline, error = api_get("/dashboard/timeline")
+    if error:
+        st.error(error)
+    elif not timeline:
+        st.info("No data.")
+    else:
+        tdf = pd.DataFrame(timeline)
+        tdf["day"] = pd.to_datetime(tdf["day"])
+        line = (
+            alt.Chart(tdf)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("day:T", title=None),
+                y=alt.Y("count:Q", title="Alerts"),
+                color=alt.Color(
+                    "severity:N",
+                    scale=alt.Scale(domain=["HIGH", "CRITICAL"],
+                                    range=[SEVERITY_COLORS[2], SEVERITY_COLORS[3]]),
+                    legend=alt.Legend(title=None, orient="top"),
+                ),
+                tooltip=["day:T", "severity", "count"],
+            )
+            .properties(height=300)
+        )
+        st.altair_chart(line, width="stretch")
+
+with t2:
+    st.markdown("**Top 10 users by HIGH + CRITICAL alerts**")
+    top, error = api_get("/dashboard/top-users")
+    if error:
+        st.error(error)
+    elif not top:
+        st.info("No data.")
+    else:
+        udf = pd.DataFrame(top)
+        bars = (
+            alt.Chart(udf)
+            .mark_bar(color=SEVERITY_COLORS[2])
+            .encode(
+                x=alt.X("alerts:Q", title="Alerts"),
+                y=alt.Y("user_id:N", sort="-x", title=None),
+                tooltip=["user_id", "alerts", "critical"],
+            )
+            .properties(height=300)
+        )
+        st.altair_chart(bars, width="stretch")
+
 # ---------- Alerts ----------
 st.subheader("Alerts")
 

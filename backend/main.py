@@ -290,3 +290,45 @@ def update_alert_status(
         conn.commit()
 
     return {"alert_id": alert_id, "status": update.status}
+
+
+
+@app.get("/dashboard/timeline")
+def alert_timeline(
+    conn=Depends(get_db_connection),
+    current_user: dict = Depends(get_current_user),
+):
+    query = """
+        SELECT to_char(e.timestamp::date, 'YYYY-MM-DD') AS day,
+               r.severity,
+               COUNT(*) AS count
+        FROM security_events e
+        JOIN risk_scores r ON e.event_id = r.event_id
+        WHERE r.severity IN ('HIGH', 'CRITICAL')
+        GROUP BY 1, 2
+        ORDER BY 1, 2
+    """
+    with conn.cursor() as cur:
+        cur.execute(query)
+        return cur.fetchall()
+
+
+@app.get("/dashboard/top-users")
+def top_users(
+    conn=Depends(get_db_connection),
+    current_user: dict = Depends(get_current_user),
+):
+    query = """
+        SELECT e.user_id,
+               COUNT(*) AS alerts,
+               COUNT(*) FILTER (WHERE r.severity = 'CRITICAL') AS critical
+        FROM security_events e
+        JOIN risk_scores r ON e.event_id = r.event_id
+        WHERE r.severity IN ('HIGH', 'CRITICAL')
+        GROUP BY e.user_id
+        ORDER BY alerts DESC, e.user_id
+        LIMIT 10
+    """
+    with conn.cursor() as cur:
+        cur.execute(query)
+        return cur.fetchall()
