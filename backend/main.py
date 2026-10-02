@@ -99,8 +99,7 @@ def get_alerts(
         query += " AND r.severity = %s"
         params.append(severity.upper())
 
-    query += " ORDER BY r.risk_score DESC LIMIT %s OFFSET %s"
-    params.extend([limit, offset])
+        query += " ORDER BY r.risk_score DESC, e.timestamp DESC, e.event_id LIMIT %s OFFSET %s"
 
     with conn.cursor() as cur:
         cur.execute(query, params)

@@ -5,6 +5,7 @@ import streamlit as st
 
 API_URL = "http://localhost:8000"
 SEVERITY_ORDER = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+SEVERITY_COLORS = ["#4c9be8", "#f2c14e", "#f08a4b", "#d64545"]
 
 st.set_page_config(page_title="Sentrix", page_icon="🛡️", layout="wide")
 
@@ -40,6 +41,8 @@ def api_get(path, params=None):
         st.session_state.token = None
         st.session_state.username = None
         st.rerun()
+    if resp.status_code == 404:
+        return None, "Not found."
     if resp.status_code != 200:
         return None, f"Request failed (status {resp.status_code})."
     return resp.json(), None
@@ -75,6 +78,7 @@ with st.sidebar:
         st.rerun()
 
 # ---------- Overview ----------
+counts = {}
 stats, error = api_get("/dashboard/stats")
 if error:
     st.error(error)
@@ -89,6 +93,7 @@ else:
     c4.metric("CRITICAL severity", f"{counts.get('CRITICAL', 0):,}")
 
     st.markdown("**Events by severity**")
+    log_scale = st.checkbox("Log scale (makes small bars visible)", value=True)
     chart_df = pd.DataFrame(
         {"severity": SEVERITY_ORDER, "count": [counts.get(s, 0) for s in SEVERITY_ORDER]}
     )
@@ -96,26 +101,85 @@ else:
         alt.Chart(chart_df)
         .mark_bar()
         .encode(
-            x=alt.X("severity:N", sort=SEVERITY_ORDER, title=None),
-            y=alt.Y("count:Q", title="Events"),
+            x=alt.X("severity:N", sort=SEVERITY_ORDER, title=None,
+                    axis=alt.Axis(labelAngle=0)),
+            y=alt.Y("count:Q", title="Events",
+                    scale=alt.Scale(type="symlog" if log_scale else "linear")),
+            color=alt.Color("severity:N",
+                            scale=alt.Scale(domain=SEVERITY_ORDER, range=SEVERITY_COLORS),
+                            legend=None),
             tooltip=["severity", "count"],
         )
         .properties(height=280)
     )
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width="stretch")
 
 # ---------- Alerts ----------
 st.subheader("Alerts")
-alerts, error = api_get("/alerts")
+
+f1, f2, f3 = st.columns(3)
+severity_choice = f1.selectbox("Severity", ["All (HIGH + CRITICAL)", "CRITICAL", "HIGH"])
+page_size = f2.selectbox("Rows per page", [25, 50, 100, 200], index=1)
+
+if severity_choice == "All (HIGH + CRITICAL)":
+    severity_param = None
+    total = counts.get("HIGH", 0) + counts.get("CRITICAL", 0)
+else:
+    severity_param = severity_choice
+    total = counts.get(severity_choice, 0)
+
+max_page = max(1, -(-total // page_size))  # ceiling division
+# the key changes with the filters, so the page resets to 1 when they change
+page = f3.number_input(
+    f"Page (of {max_page:,})", min_value=1, max_value=max_page, value=1, step=1,
+    key=f"page_{severity_choice}_{page_size}",
+)
+offset = (page - 1) * page_size
+
+params = {"limit": page_size, "offset": offset}
+if severity_param:
+    params["severity"] = severity_param
+
+rows, error = api_get("/alerts", params=params)
 if error:
     st.error(error)
+elif not rows:
+    st.info("No alerts for this filter.")
 else:
-    if isinstance(alerts, list):
-        rows = alerts
+    st.caption(f"Showing {offset + 1:,}–{offset + len(rows):,} of {total:,} alerts, "
+               "highest risk first. Click a column header to sort this page.")
+    st.dataframe(
+        pd.DataFrame(rows),
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "risk_score": st.column_config.ProgressColumn(
+                "risk_score", min_value=0, max_value=100, format="%d"
+            ),
+        },
+    )
+
+# ---------- User risk lookup ----------
+st.subheader("User risk lookup")
+user_id = st.text_input("User ID", value="user_0021", help="For example: user_0021")
+
+if user_id.strip():
+    profile, error = api_get(f"/users/{user_id.strip()}/risk")
+    if error == "Not found.":
+        st.warning(f"No user found with ID '{user_id.strip()}'.")
+    elif error:
+        st.error(error)
     else:
-        rows = next((v for v in alerts.values() if isinstance(v, list)), [])
-    st.caption(f"{len(rows)} rows returned by /alerts")
-    if rows:
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-    with st.expander("Raw response (first 3)"):
-        st.json(rows[:3] if rows else alerts)
+        u1, u2, u3, u4, u5 = st.columns(5)
+        u1.metric("Role", profile["role"])
+        u2.metric("Total events", f"{profile['total_events']:,}")
+        u3.metric("Flagged attacks", f"{profile['total_flagged_attacks']:,}")
+        u4.metric("Avg risk score", profile["avg_risk_score"])
+        u5.metric("Max risk score", profile["max_risk_score"])
+
+        recent = profile.get("recent_high_severity_events", [])
+        st.markdown("**Most recent HIGH / CRITICAL events**")
+        if recent:
+            st.dataframe(pd.DataFrame(recent), width="stretch", hide_index=True)
+        else:
+            st.info("This user has no HIGH or CRITICAL events.")
