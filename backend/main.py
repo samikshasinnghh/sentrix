@@ -2,7 +2,11 @@ import os
 import sys
 from typing import Optional
 import uuid as uuid_lib
+import time
+import logging
+import psycopg2
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -25,10 +29,58 @@ app = FastAPI(
     version="0.1.0",
 )
 
+# --- Phase 16: logging and request timing ---
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger("sentrix")
+START_TIME = time.time()
+
+
+@app.middleware("http")
+async def log_requests(request, call_next):
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        ms = (time.perf_counter() - start) * 1000
+        logger.exception("%s %s -> unhandled error (%.1f ms)",
+                         request.method, request.url.path, ms)
+        raise
+    ms = (time.perf_counter() - start) * 1000
+    logger.info("%s %s -> %s (%.1f ms)",
+                request.method, request.url.path, response.status_code, ms)
+    return response
+
 
 @app.get("/")
 def root():
     return {"status": "Sentrix API is running"}
+
+
+# --- Phase 16: health check ---
+@app.get("/health")
+def health():
+    db_ok = True
+    try:
+        conn = psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=3)
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1;")
+        conn.close()
+    except Exception:
+        db_ok = False
+        logger.exception("Health check: database unreachable")
+
+    return JSONResponse(
+        status_code=200 if db_ok else 503,
+        content={
+            "status": "ok" if db_ok else "degraded",
+            "database": "up" if db_ok else "down",
+            "uptime_seconds": int(time.time() - START_TIME),
+            "version": "0.1.0",
+        },
+    )
 
 
 @app.get("/health/db")
@@ -293,7 +345,6 @@ def update_alert_status(
     return {"alert_id": alert_id, "status": update.status}
 
 
-
 @app.get("/dashboard/timeline")
 def alert_timeline(
     conn=Depends(get_db_connection),
@@ -333,4 +384,3 @@ def top_users(
     with conn.cursor() as cur:
         cur.execute(query)
         return cur.fetchall()
-
