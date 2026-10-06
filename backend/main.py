@@ -12,6 +12,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from backend.database import get_db_connection
+from backend import metrics
 from backend.schemas import (
     AlertOut, UserRiskOut, EventIn,
     UserRegisterIn, TokenOut,
@@ -38,6 +39,11 @@ logger = logging.getLogger("sentrix")
 START_TIME = time.time()
 
 
+def _route_path(request) -> str:
+    route = request.scope.get("route")
+    return route.path if route else "unmatched"
+
+
 @app.middleware("http")
 async def log_requests(request, call_next):
     start = time.perf_counter()
@@ -47,10 +53,14 @@ async def log_requests(request, call_next):
         ms = (time.perf_counter() - start) * 1000
         logger.exception("%s %s -> unhandled error (%.1f ms)",
                          request.method, request.url.path, ms)
+        metrics.record_request(request.method, _route_path(request), 500, ms)
         raise
     ms = (time.perf_counter() - start) * 1000
     logger.info("%s %s -> %s (%.1f ms)",
                 request.method, request.url.path, response.status_code, ms)
+    if request.url.path != "/metrics":
+        metrics.record_request(request.method, _route_path(request),
+                               response.status_code, ms)
     return response
 
 
@@ -89,6 +99,12 @@ def health_check_db(conn=Depends(get_db_connection)):
         cur.execute("SELECT COUNT(*) as count FROM users;")
         result = cur.fetchone()
     return {"database": "connected", "user_count": result["count"]}
+
+
+# --- Phase 16: basic metrics ---
+@app.get("/metrics")
+def get_metrics():
+    return metrics.snapshot()
 
 
 @app.get("/dashboard/stats")
