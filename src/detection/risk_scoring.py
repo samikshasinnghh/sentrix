@@ -7,6 +7,11 @@ def normalize_anomaly_score(df):
     min_score = df["anomaly_score"].min()
     max_score = df["anomaly_score"].max()
 
+    if max_score == min_score:
+        df["anomaly_score_normalized"] = 0.0
+        return df
+
+
     df["anomaly_score_normalized"] = (df["anomaly_score"] - min_score) / (max_score - min_score)
 
     return df
