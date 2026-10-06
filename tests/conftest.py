@@ -1,4 +1,5 @@
 import os
+import uuid
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
@@ -74,3 +75,56 @@ def make_headers(client):
         })
         return {"Authorization": f"Bearer {r.json()['access_token']}"}
     return _make
+
+
+@pytest.fixture
+def seed_event(clean_db):
+    """Insert one event + risk score + anomaly row; returns the event_id."""
+    conn = psycopg2.connect(TEST_DATABASE_URL)
+
+    def _seed(user_id="u1", severity="HIGH", risk_score=80.0,
+              timestamp="2026-01-01 10:00:00", is_attack=True,
+              attack_type="recon"):
+        event_id = str(uuid.uuid4())
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO users (user_id, role) VALUES (%s, %s) "
+                "ON CONFLICT (user_id) DO NOTHING;",
+                [user_id, "engineer"],
+            )
+            cur.execute(
+                "INSERT INTO security_events (event_id, user_id, timestamp, "
+                "source_ip, country, action, status, is_privileged_action) "
+                "VALUES (%s, %s, %s, '10.0.0.1', 'IN', 'login', 'success', false);",
+                [event_id, user_id, timestamp],
+            )
+            cur.execute(
+                "INSERT INTO risk_scores (event_id, anomaly_score, "
+                "anomaly_score_normalized, risk_score, severity, rules_triggered) "
+                "VALUES (%s, 0.5, 0.5, %s, %s, 0);",
+                [event_id, risk_score, severity],
+            )
+            cur.execute(
+                "INSERT INTO anomalies (event_id, is_attack, attack_type) "
+                "VALUES (%s, %s, %s);",
+                [event_id, is_attack, attack_type],
+            )
+        conn.commit()
+        return event_id
+
+    yield _seed
+    conn.close()
+
+
+@pytest.fixture
+def db_query(clean_db):
+    """Run a SELECT against the test database and return all rows."""
+    def _query(sql, params=None):
+        conn = psycopg2.connect(TEST_DATABASE_URL)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                return cur.fetchall()
+        finally:
+            conn.close()
+    return _query
