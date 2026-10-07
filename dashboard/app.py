@@ -1,9 +1,11 @@
+import os
+
 import altair as alt
 import pandas as pd
 import requests
 import streamlit as st
 
-API_URL = "http://localhost:8000"
+API_URL = os.getenv("API_URL", "http://localhost:8000")
 SEVERITY_ORDER = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
 SEVERITY_COLORS = ["#4c9be8", "#f2c14e", "#f08a4b", "#d64545"]
 
