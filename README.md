@@ -162,8 +162,9 @@ the pipeline.
 | 8. Load into PostgreSQL | `database/load_data.py` | database tables |
 
 Step 2 needs the raw RBA login dataset (`das-group/rba-dataset`), downloaded
-separately. `SOURCE` at the top of `src/utils/sample_rba.py` must point to your
-copy of it.
+separately. Place it at `data/raw/rba-dataset.csv`, or set the `RBA_SOURCE`
+environment variable to its location, for example
+`$env:RBA_SOURCE = "C:\path\to\rba-dataset.csv"` in PowerShell.
 
 The database and dashboard are built from the synthetic activity data. The RBA
 login dataset is used only for model evaluation. CloudTrail ingestion

@@ -1,6 +1,9 @@
+import os
+
 import pandas as pd
 
-SOURCE = r"C:\Users\samik\Downloads\rba-dataset-raw\rba-dataset.csv"
+# Path to the raw RBA dataset. Set RBA_SOURCE, or place the file at the default.
+SOURCE = os.environ.get("RBA_SOURCE", "data/raw/rba-dataset.csv")
 OUTPUT = "data/raw/rba_sample.csv"
 
 CHUNK_SIZE = 500_000
