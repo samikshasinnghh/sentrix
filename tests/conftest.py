@@ -65,14 +65,32 @@ def client(clean_db):
 
 @pytest.fixture
 def make_headers(client):
-    def _make(role, username=None):
-        username = username or f"{role}_test"
-        client.post("/auth/register", json={
-            "username": username, "password": "Passw0rd!test", "role": role,
-        })
-        r = client.post("/auth/login", data={
+    def _login(username):
+        return client.post("/auth/login", data={
             "username": username, "password": "Passw0rd!test",
         })
+
+    def _make(role, username=None):
+        username = username or f"{role}_test"
+
+        # The first account can be created without logging in. After that,
+        # every new account needs an admin, so keep one bootstrap admin around.
+        boot = _login("bootstrap_admin")
+        if boot.status_code != 200:
+            client.post("/auth/register", json={
+                "username": "bootstrap_admin",
+                "password": "Passw0rd!test",
+                "role": "admin",
+            })
+            boot = _login("bootstrap_admin")
+        admin_headers = {"Authorization": f"Bearer {boot.json()['access_token']}"}
+
+        if username != "bootstrap_admin":
+            client.post("/auth/register", json={
+                "username": username, "password": "Passw0rd!test", "role": role,
+            }, headers=admin_headers)
+
+        r = _login(username)
         return {"Authorization": f"Bearer {r.json()['access_token']}"}
     return _make
 

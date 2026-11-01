@@ -134,7 +134,9 @@ Requires Docker Desktop and Python 3. Commands are for Windows PowerShell.
    python database/load_data.py
    ```
 
-6. Create an admin account through the API (`POST /auth/register`).
+6. Create the first admin account through the API (`POST /auth/register`).
+   The first account needs no login. After that, registering a user requires
+   an admin login.
 
 7. Log in, then generate alerts from the scored events
    (`POST /alerts/generate`). Both calls can be made from the API's interactive
@@ -179,8 +181,7 @@ pytest
 The suite covers authentication, the alerts and events endpoints, the alert
 engine, risk scoring, the baseline rules and CloudTrail ingestion (with a fake
 S3 client). Tests run against a separate throwaway test database, never the
-main one. The standard suite has 96 tests, plus 7 opt-in end-to-end checks
-against the running Docker stack (set `E2E_BASE_URL` to enable them).
+main one. The standard suite has 99 tests, plus 7 opt-in end-to-end checks
 
 ## Deployment (AWS)
 

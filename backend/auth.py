@@ -11,6 +11,8 @@ from fastapi.security import OAuth2PasswordBearer
 from src.utils.config import JWT_SECRET_KEY
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Same as oauth2_scheme, but returns None instead of failing when no token is sent.
+optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60

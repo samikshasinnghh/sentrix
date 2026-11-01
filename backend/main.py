@@ -21,6 +21,7 @@ from backend.schemas import (
 from backend.auth import (
     hash_password, verify_password, create_access_token,
     get_current_user, require_role,
+    decode_access_token, optional_oauth2_scheme,
 )
 from src.detection.alert_engine import generate_alerts
 
@@ -292,11 +293,25 @@ def create_event(
 
 
 @app.post("/auth/register", status_code=201)
-def register(user: UserRegisterIn, conn=Depends(get_db_connection)):
+def register(
+    user: UserRegisterIn,
+    token: Optional[str] = Depends(optional_oauth2_scheme),
+    conn=Depends(get_db_connection),
+):
     if user.role not in ("admin", "analyst", "viewer"):
         raise HTTPException(status_code=400, detail="Invalid role")
 
     with conn.cursor() as cur:
+        # The very first account can be created without logging in (bootstrap).
+        # After that, only a logged-in admin can create accounts.
+        cur.execute("SELECT EXISTS (SELECT 1 FROM app_users) AS has_users;")
+        if cur.fetchone()["has_users"]:
+            payload = decode_access_token(token) if token else None
+            if payload is None:
+                raise HTTPException(status_code=401, detail="Admin login required")
+            if payload.get("role") != "admin":
+                raise HTTPException(status_code=403, detail="Insufficient permissions")
+
         cur.execute("SELECT 1 FROM app_users WHERE username = %s;", [user.username])
         if cur.fetchone():
             raise HTTPException(status_code=400, detail="Username already exists")
